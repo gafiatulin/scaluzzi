@@ -32,16 +32,16 @@ class MissingFinal extends SemanticRule("MissingFinal") {
         !mods.exists(m => m.is[Mod.Final] || m.is[Mod.Abstract])
 
     collect(sdoc.tree) {
-      case (t @ Defn.Class(mods, _, _, _, _), parentPropagatesOuterRef)
+      case (t @ Defn.Class.After_4_6_0(mods, _, _, _, _), parentPropagatesOuterRef)
           if isNonFinalConcreteCaseClass(mods) && !parentPropagatesOuterRef =>
         (Some(addFinal(mods, t)), PropagatesOuterRef)
-      case (t @ Defn.Class(mods, _, _, _, templ), _)
+      case (t @ Defn.Class.After_4_6_0(mods, _, _, _, templ), _)
           if leaksSealedParent(mods, templ) =>
         val lint = Patch.lint(
           Diagnostic("class", "Class extends sealed parent", t.pos)
         )
         (Some(lint), PropagatesOuterRef)
-      case (t @ Defn.Trait(mods, _, _, _, templ), _)
+      case (t @ Defn.Trait.After_4_6_0(mods, _, _, _, templ), _)
           if leaksSealedParent(mods, templ) =>
         val lint = Patch.lint(
           Diagnostic("trait", "Trait extends sealed parent", t.pos)
