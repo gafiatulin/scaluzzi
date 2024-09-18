@@ -3,15 +3,14 @@ package scalafix.internal.scaluzzi
 import metaconfig._
 import metaconfig.annotation.{Description, ExampleValue}
 import metaconfig.generic.Surface
-import scalafix.v0.Symbol
-import scalafix.internal.util.SymbolOps
+import scalafix.v1.{Symbol, SymbolMatcher}
 import scalafix.internal.config._
 
 case class DisabledSymbol(
     @ExampleValue("scala.sys.process.Process")
     @Description(
       "A single symbol to ban. Cannot be used together with the regex option.")
-    symbol: Option[Symbol.Global],
+    symbol: Option[String],
     @Description("Custom message.")
     message: Option[String],
     @Description("Custom id for error messages.")
@@ -30,17 +29,18 @@ case class DisabledSymbol(
                     |}""".stripMargin)
     regex: Option[FilterMatcher]) {
 
-  def matches(symbol: Symbol): Boolean = {
+  private lazy val disabledSymbolMatcher: SymbolMatcher =
+    SymbolMatcher.normalized(symbol.toSeq: _*)
+
+  def matches(symbol: Symbol): Boolean =
     this.symbol match {
-      case Some(s) =>
-        SymbolOps.isSameNormalized(symbol, s)
+      case Some(_) => disabledSymbolMatcher.matches(symbol)
       case None =>
         regex match {
-          case Some(r) => r.matches(symbol.toString)
-          case None => sys.error("impossible")
+          case Some(regex) => regex.matches(symbol.value)
+          case None        => sys.error("Invalid configuration")
         }
     }
-  }
 }
 
 object DisabledSymbol {
@@ -54,28 +54,32 @@ object DisabledSymbol {
       msg
     }
   implicit val reader: ConfDecoder[DisabledSymbol] =
-    ConfDecoder.instance[DisabledSymbol] {
+    ConfDecoder.fromPartial[DisabledSymbol]("DisabledSymbol") {
       case c: Conf.Obj =>
-        (c.getOption[Symbol.Global]("symbol") |@|
+        (c.getOption[String]("symbol") |@|
           c.getOption[String]("message") |@|
           c.getOption[String]("id") |@|
           c.getOption[FilterMatcher]("regex"))
           .andThen {
-            case (((Some(_), b), c), Some(_)) =>
+            case (((Some(_), _), _), Some(_)) =>
               Configured.notOk(ConfError.message(
                 "Cannot specify both symbol and regex, only one of them is allowed."))
             case (((a @ Some(_), b), c), None) =>
               Configured.ok(DisabledSymbol(a, b.map(normalizeMessage), c, None))
             case (((None, b), c), d @ Some(_)) =>
               Configured.ok(DisabledSymbol(None, b.map(normalizeMessage), c, d))
-            case (((None, b), c), None) =>
+            case (((None, _), _), None) =>
               Configured.notOk(
                 ConfError.message("Either symbol or regex must be specified."))
           }
       case s: Conf.Str =>
-        symbolGlobalReader
-          .read(s)
-          .map(sym => DisabledSymbol(Some(sym), None, None, None))
+        Symbol(s.value).asNonEmpty match {
+          case Some(s) =>
+            Configured.ok(
+              DisabledSymbol(symbol = Some(s.value), message = None, id = None, regex = None)
+            )
+          case None => Configured.error(s"Invalid symbol: ${s.value}")
+        }
     }
 }
 
@@ -89,8 +93,8 @@ case class UnlessInsideBlock(
 object UnlessInsideBlock {
   implicit val surface: Surface[UnlessInsideBlock] =
     generic.deriveSurface[UnlessInsideBlock]
-  val safeBlocksReader: ConfDecoder[List[DisabledSymbol]] =
-    ConfDecoder.instanceF[List[DisabledSymbol]] { conf =>
+  private val safeBlocksReader: ConfDecoder[List[DisabledSymbol]] =
+    ConfDecoder.from[List[DisabledSymbol]] { conf =>
       val toRead = conf match {
         case str @ Conf.Str(_) => Conf.Lst(str)
         case e => e
@@ -100,7 +104,7 @@ object UnlessInsideBlock {
   // NOTE(olafur): metaconfig.generic.deriveDecoder requires a default base values.
   // Here we require all fields to be provided by the user so we write the decoder manually.
   implicit val reader: ConfDecoder[UnlessInsideBlock] =
-    ConfDecoder.instanceF[UnlessInsideBlock] {
+    ConfDecoder.from[UnlessInsideBlock] {
       case c: Conf.Obj =>
         (c.get("safeBlocks", "safeBlock")(safeBlocksReader) |@|
           c.get[List[DisabledSymbol]]("symbols")).map {

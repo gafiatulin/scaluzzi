@@ -61,6 +61,12 @@ If you must Option.get, wrap the code block with
 ...
 // scalafix:on Option.get
 */
+
+  Option(1).get // scalafix:ok
+
+  // scalafix:off Option.get
+  Option(1).get
+  // scalafix:on Option.get
   val l: ListBuffer[Int] = scala.collection.mutable.ListBuffer.empty[Int] // assert: Disable.mutable
   List(1) + "any2stringadd" /* assert: Disable.any2stringadd
   ^^^^^^^
