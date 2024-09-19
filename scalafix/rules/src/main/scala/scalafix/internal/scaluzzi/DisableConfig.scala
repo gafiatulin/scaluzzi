@@ -157,7 +157,7 @@ case class DisableConfig(
   lazy val allSafeBlocks: List[DisabledSymbol] =
     unlessInside.flatMap(_.safeBlocks)
   lazy val allDisabledSymbols: List[DisabledSymbol] =
-    symbols ++ ifSynthetic ++ unlessInside.flatMap(_.symbols)
+    symbols ++ unlessInside.flatMap(_.symbols)
 }
 
 object DisableConfig {
